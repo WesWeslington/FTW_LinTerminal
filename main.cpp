@@ -6,6 +6,11 @@
 #include <thread>
 #include <unistd.h>
 
+// OS Specific
+#include <linux/input.h>
+#include <fcntl.h>
+#include <glob.h>
+
 using namespace std;
 
  /*
@@ -14,52 +19,74 @@ using namespace std;
 
 class Input
 {
+
 public:
+
     Input()
     {
-        tcgetattr(STDIN_FILENO, &Orig);
-        termios Raw = Orig;
-        Raw.c_lflag &= ~(ICANON | ECHO);
-        Raw.c_cc[VMIN] = 0;
-        Raw.c_cc[VTIME] = 0;
-        tcsetattr(STDIN_FILENO, TCSANOW, &Raw);
+        DeviceID = InitializeDevice();
+        if(DeviceID < 0)
+        {
+            perror("Was not able to initialize keyboard.");
+        }
+        else
+        {
+            printf("Successfully initialized keyboard!\n");
+            ioctl(DeviceID, EVIOCGRAB, 1);
+        }
     }
 
-    ~Input()
+    int InitializeDevice()
     {
-        tcsetattr(STDIN_FILENO, TCSANOW, &Orig);
+        glob_t Glob;
+        if(glob("/dev/input/by-id/*-event-kbd", 0, nullptr, &Glob) != 0)
+        {
+            return -1;
+        }
+
+        int FoundDevice = -1;
+        for(size_t Index = 0; Index < Glob.gl_pathc; ++Index)
+        {
+            string Path = Glob.gl_pathv[Index];
+            if(Path.find("-if0") != string::npos)
+            {
+                continue;
+            }
+            FoundDevice = open(Path.c_str(), O_RDONLY | O_NONBLOCK);
+            if(FoundDevice >= 0) break;
+        }
+        globfree(&Glob);
+        return FoundDevice;
     }
 
-    int PollKey()
-    {
-        char InputChar;
-        return read(STDIN_FILENO, &InputChar, 1) == 1 ? InputChar : -1;
-    }
+    int GetDeviceID(){ return DeviceID; };
 
 private:
-    termios Orig;
+
+    int DeviceID = -1;
+    input_event Ev;
 };
 
 enum class InputKey
 {
-    Up,    // Arrow - 65
-    Down,  // Arrow - 66
-    Right, // Arrow - 67
-    Left,  // Arrow - 68 
-    Shoot, // G     - 103
-    Jump,  // Space - 32
-    Quit   // q     - 113
+    Up, 
+    Down, 
+    Right, 
+    Left,   
+    Shoot, 
+    Jump,  
+    Quit   
 };
 
 map<int, InputKey> InputMap = 
 {
-    {65,  InputKey::Up},
-    {66,  InputKey::Down},
-    {67,  InputKey::Right},
-    {68,  InputKey::Left},
-    {103, InputKey::Shoot},
-    {32,  InputKey::Jump},
-    {113, InputKey::Quit}
+    { KEY_UP,     InputKey::Up    },
+    { KEY_DOWN,   InputKey::Down  },
+    { KEY_RIGHT,  InputKey::Right },
+    { KEY_LEFT,   InputKey::Left  },
+    { KEY_G,      InputKey::Shoot },
+    { KEY_SPACE,  InputKey::Jump  },
+    { KEY_Q,      InputKey::Quit  }
 };
 
  /*
@@ -99,11 +126,19 @@ public:
 
 class Game
 {
- public:
+ 
+public:
+
+     void Initialize()
+    {
+
+        StartTime = chrono::steady_clock::now();
+        FoundKeyboard = GameInput.GetDeviceID();
+    }
 
     void GameLoop()
     {
-        StartTime = chrono::steady_clock::now();
+        Initialize();
 
         while(bIsActive)
         {                   
@@ -146,37 +181,76 @@ class Game
 
     void CheckInput()
     {
-        int InputVal = GameInput.PollKey();
-        if(InputVal > -1)
+        input_event Ev;
+        if(read(FoundKeyboard, &Ev, sizeof(Ev)) == sizeof(Ev))
         {
-            if(InputMap.contains(InputVal))
+            if(InputMap.contains(Ev.code))
             {   
-                switch(InputMap[InputVal])
+                switch(InputMap[Ev.code])
                 {
                     case(InputKey::Jump):
-                        Print("Jump Input");
+                        if(Ev.value == 1)
+                        {
+                            Jump();
+                        }
                         break;
                     case(InputKey::Shoot):
-                        Print("Shoot Input");
+                        if(Ev.value == 1)
+                        {
+                            ShootDown();
+                        }
+                        else if(Ev.value == 0)
+                        {
+                            ShootReleased();
+                        }
                         break;
                     case(InputKey::Up):
-                        Print("Up Input");
+                       
+                        if(Ev.value == 1)
+                        {
+                            ArrowKeyDown(0, 1);
+                        }
+                        else if(Ev.value == 0)
+                        {
+                            ArrowKeyReleased(0, 1);
+                        }
                         break;
                     case(InputKey::Down):
-                        Print("Down Input");
+                        
+                        if(Ev.value == 1)
+                        {
+                            ArrowKeyDown(0, -1);
+                        }
+                        else if(Ev.value == 0)
+                        {
+                            ArrowKeyReleased(0, -1);
+                        }
                         break;
                     case(InputKey::Right):
-                        Print("Right Input");
+                        if(Ev.value == 1)
+                        {
+                            ArrowKeyDown(1, 0);
+                        }
+                        else if(Ev.value == 0)
+                        {
+                            ArrowKeyReleased(1, 0);
+                        }
                         break;
                     case(InputKey::Left):
-                        Print("Left Input");
+                        if(Ev.value == 1)
+                        {
+                            ArrowKeyDown(-1, 0);
+                        }
+                        else if(Ev.value == 0)
+                        {
+                            ArrowKeyReleased(-1, 0);
+                        }
                         break;
                     case(InputKey::Quit):
-                        Print("Quit Input");
-                        EndGame();
+                        Quit();
                         break;
                     default:
-                        Printf("Unknown key pressed, keycode %d", InputVal);
+                        Printf("Unknown key pressed, keycode %d", Ev.code);
                         break;
                 }
             }
@@ -185,7 +259,8 @@ class Game
 
  private:
     Input GameInput;
-
+    
+    int FoundKeyboard = -1;
     bool bIsActive = true;
     uint8_t FixedFPS = 30;
     uint16_t FPS = 300;
@@ -204,6 +279,47 @@ class Game
     {
         return chrono::milliseconds(1000 / FPS);
     }
+
+    void ShootDown()
+    {
+        Print("Shoot Down");
+    }
+
+    void ShootReleased()
+    {
+        Print("Shoot Released");
+    }
+
+    void Jump()
+    {
+        Print("Jump Input");
+    }
+    
+    int MovementX = 0;
+    int MovementY = 0;
+
+    void ArrowKeyDown(int X, int Y)
+    {
+        MovementX += X;
+        MovementY += Y;
+
+        Printf("Movement X: %d Y: %d", MovementX, MovementY);
+    }
+
+    void ArrowKeyReleased(int X, int Y)
+    {
+        MovementX -= X;
+        MovementY -= Y;
+
+        Printf("Movement X: %d Y: %d", MovementX, MovementY);
+    }
+
+    void Quit()
+    {
+        Print("Quit Down");
+        EndGame();
+    }
+
 };
 
  /*
