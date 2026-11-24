@@ -1,6 +1,7 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <string>
 #include <termios.h>
 #include <thread>
@@ -100,24 +101,109 @@ void Print(string Message)
 {
     cout << Message << endl;
 }
+ /*
+ *  Entity
+*/
+class Game;
+class Entity
+{
+public:
+    friend Game;
+    
+    Entity(){}
+    virtual ~Entity(){}
+    
+    bool IsAlive() { return bIsAlive;}
+
+    void Kill()
+    {
+        bIsAlive = false;
+    }
+
+protected:
+
+    virtual void Update(){}
+    virtual void FixedUpdate(){}
+    virtual void Render(){}
+    bool bIsAlive = true;
+};
 
  /*
+ *   Static Globals
+*/
+vector<unique_ptr<Entity>> Entities;
+int Gravity = 10;
+
+/*
  *  Player
 */
 
-class Player
+class Player : public Entity
 {
 
 public:
+    Player()
+    {
+        Print("Player has spawned!");
+    }
 
+    ~Player()
+    {
+        Print("Player has been deleted!");
+    }
+    
     void Shoot()
     {
+    }
+
+    void CancelShoot()
+    {
+
     }
     
     void Jump()
     {
     }
 
+    //TODO: Maybe a CancelJump() to have better control of jump height?
+
+    int PositionX;
+    int PositionY;
+    int Speed = 1;
+
+    int InputX;
+    int InputY;
+
+    void Move(const int& X, const int& Y)
+    {
+        PositionX += X;
+        PositionY += Y;
+        
+        InputX = X;
+        InputY = Y;
+    }
+
+protected:
+
+    virtual void Update() override
+    {
+
+    }
+
+    virtual void FixedUpdate() override
+    {
+        if(InputX != 0)
+        {
+            PositionX += InputX * Speed;
+            Printf("Player Location: X: %d | Y: %d", PositionX, PositionY);  
+        }
+
+        if(InputY != 0)
+        {
+            PositionY += InputY * Speed;
+            Printf("Player Location: X: %d | Y: %d", PositionX, PositionY);  
+        }
+    }
 };
 
  /*
@@ -128,10 +214,9 @@ class Game
 {
  
 public:
-
-     void Initialize()
+    
+    void Initialize()
     {
-
         StartTime = chrono::steady_clock::now();
         FoundKeyboard = GameInput.GetDeviceID();
     }
@@ -139,11 +224,14 @@ public:
     void GameLoop()
     {
         Initialize();
-
+        //Render(); // DEBUG - TODO: remove this 
+        SpawnEntity();
         while(bIsActive)
         {                   
             Update();
-            
+            CheckInput();
+            //Render();
+
             if(chrono::steady_clock::now() - LastFixedFrame >= (1000ms / FixedFPS))
             {       
                 FixedUpdate();
@@ -168,15 +256,40 @@ public:
     void Update()
     {
         UpdateFrames++;
-        
-        CheckInput();
+        UpdateEntities();    
     }
     
+    void UpdateEntities()
+    {
+        for(auto& CurEntity : Entities)
+        {
+            CurEntity->Update();
+        }
+
+        CheckTrackedEntities();
+    }
+
     void FixedUpdate()
     {
         LastFixedFrame = chrono::steady_clock::now(); 
         FixedFrames++;
         
+        FixedUpdateEntities();
+    }
+    
+    void FixedUpdateEntities()
+    {
+        for(auto& CurEntity : Entities)
+        {
+            CurEntity->FixedUpdate();
+        }
+
+        CheckTrackedEntities();
+    }
+    
+    void CheckTrackedEntities()
+    {
+        erase_if(Entities, [](const unique_ptr<Entity>& E){ return !E || !E->IsAlive(); } );
     }
 
     void CheckInput()
@@ -256,10 +369,33 @@ public:
             }
         }
     }
+    
+    void Render()
+    {
+        for(int Y = 0; Y < 50; Y++)
+        {
+            for(int X = 0; X < 50; X++)
+            {
+                DrawPixel(X, Y, 0, 128, 128);
+            }
+
+            cout << '\n';
+        }
+
+        cout << "\033[0m";
+    }
+
+    void SpawnEntity()
+    {
+        unique_ptr<Player> NewPlayer = make_unique<Player>();
+        GamePlayer = NewPlayer.get();
+        Entities.push_back(move(NewPlayer));
+    }
 
  private:
     Input GameInput;
-    
+    Player* GamePlayer;
+
     int FoundKeyboard = -1;
     bool bIsActive = true;
     uint8_t FixedFPS = 30;
@@ -282,42 +418,55 @@ public:
 
     void ShootDown()
     {
+        GamePlayer->Shoot();
         Print("Shoot Down");
     }
 
     void ShootReleased()
     {
+        GamePlayer->CancelShoot();
         Print("Shoot Released");
     }
 
     void Jump()
     {
+        GamePlayer->Jump();
         Print("Jump Input");
     }
     
-    int MovementX = 0;
-    int MovementY = 0;
+    int InputX = 0;
+    int InputY = 0;
 
     void ArrowKeyDown(int X, int Y)
     {
-        MovementX += X;
-        MovementY += Y;
-
-        Printf("Movement X: %d Y: %d", MovementX, MovementY);
+        InputX += X;
+        InputY += Y;
+        
+        GamePlayer->Move(InputX, InputY);
+        Printf("Movement X: %d Y: %d", InputX, InputY);
     }
 
     void ArrowKeyReleased(int X, int Y)
     {
-        MovementX -= X;
-        MovementY -= Y;
+        InputX -= X;
+        InputY -= Y;
 
-        Printf("Movement X: %d Y: %d", MovementX, MovementY);
+        GamePlayer->Move(InputX, InputY);
+        Printf("Movement X: %d Y: %d", InputX, InputY);
     }
 
     void Quit()
     {
         Print("Quit Down");
         EndGame();
+    }
+
+    void DrawPixel(int X, int Y, int R, int G, int B)
+    {
+        cout << "\033[" << Y + 1 << ";" << (X*3) + 1 << "H";
+        cout << "\033[48;2;" << R << ";" << G << ";" << B << "m";
+        cout << "   ";
+        cout << "\033[0m";
     }
 
 };
