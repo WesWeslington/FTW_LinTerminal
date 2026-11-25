@@ -124,8 +124,8 @@ void DrawPixel(int PosX, int PosY, Color16 Color)
 #define MAGENTA        Color16(255, 0, 255)
 #define YELLOW         Color16(255, 255, 0)
 #define ORANGE         Color16(255, 128, 0)
-#define WHITE          Color16(0, 0, 0)
-#define BLACK          Color16(255, 255, 255)
+#define WHITE          Color16(255, 255, 255)
+#define BLACK          Color16(0, 0, 0)
 
 void Clear(Color16 Color)
 {
@@ -137,6 +137,7 @@ void Clear(Color16 Color)
         }
     }
 }
+
 void DrawRectangle(int PosX, int PosY, int SizeX, int SizeY, Color16 Color)
 { 
     for(int Y = PosY; Y < PosY + SizeY; Y++)
@@ -147,6 +148,7 @@ void DrawRectangle(int PosX, int PosY, int SizeX, int SizeY, Color16 Color)
         }
     }
 }
+
 static inline uint32_t RGB565ToRGBA32(uint16_t Color565)
 {
     uint8_t R = ((Color565 >> 11) & 0x1F) << 3;
@@ -168,74 +170,17 @@ int InitializeFrameBufferDevice()
     return FrameDevice;
 }
 
+int FrameBufferDevice = -1;
+
 bool InitializeFrameBuffer()
 {
-    int FrameBufferDevice = InitializeFrameBufferDevice();
+    FrameBufferDevice = InitializeFrameBufferDevice();
+    ioctl(FrameBufferDevice, EVIOCGRAB, 1);
     if(FrameBufferDevice < 0)
     {
         Error("Was not able to initialize frame buffer!");
         return false;
     }
-
-    fb_fix_screeninfo FixedInfo;
-    fb_var_screeninfo VariableInfo;
-    ioctl(FrameBufferDevice, FBIOGET_FSCREENINFO, &FixedInfo);
-    ioctl(FrameBufferDevice, FBIOGET_VSCREENINFO, &VariableInfo);
-
-    // TODO: This stuff should be moved out of here
-    int Height = VariableInfo.yres;
-    int LineLength = FixedInfo.line_length;
-    int BitsPerPixel = VariableInfo.bits_per_pixel; // 16 or 32
-    size_t PageSize = static_cast<size_t>(Height) * LineLength;
-
-    uint8_t* BackBuffer = new uint8_t[PageSize]();
-
-    //Draw Background
-    Clear(CLEAR_COLOR);
-
-    // Draw Rectangle
-    DrawRectangle(0,  40, 16, 16, CYAN);
-    DrawRectangle(16, 40, 16, 16, MAGENTA);
-    DrawRectangle(32, 40, 16, 16, GREEN);
-    DrawRectangle(48, 40, 16, 16, BLUE);
-    DrawRectangle(64, 40, 16, 16, RED);
-    DrawRectangle(80, 40, 16, 16, YELLOW);
-    DrawRectangle(96, 40, 16, 16, ORANGE);
-    DrawRectangle(112, 40, 16, 16, BLACK);
-    DrawRectangle(128, 40, 16, 16, WHITE);
-    
-    for(int GY = 0; GY < GameHeight; GY++)
-    {
-        for(int SY = 0; SY < PixelScale; SY++)
-        {
-            int DestRow = GY * PixelScale + SY;
-            if(DestRow >= Height) { break; }
-            uint8_t* Row = BackBuffer + DestRow * LineLength;
-
-            for(int GX = 0; GX < GameWidth; GX++)
-            {
-                uint16_t Pixel = GameBuffer[GY * GameWidth + GX];
-                
-                for(int SX = 0; SX < PixelScale; SX++)
-                {
-                    int DestX = GX * PixelScale + SX;
-                    if(BitsPerPixel == 16)
-                    {
-                        reinterpret_cast<uint16_t*>(Row)[DestX] = Pixel;
-                    }
-                    else
-                    {
-                        reinterpret_cast<uint16_t*>(Row)[DestX] = RGB565ToRGBA32(Pixel);
-                    }
-                }
-            }
-        }
-    }
-    
-
-    pwrite(FrameBufferDevice, BackBuffer, PageSize, 0);
-    
-    //delete[] BackBuffer;
 
     return true;
 }
@@ -329,7 +274,7 @@ public:
     Entity(){}
     virtual ~Entity(){}
     
-    bool IsAlive() { return bIsAlive;}
+    const bool& IsAlive() { return bIsAlive;}
 
     void Kill()
     {
@@ -385,7 +330,7 @@ public:
 
     int PositionX = 0;
     int PositionY = 0;
-    int Speed = 1;
+    int Speed = 4;
 
     int InputX = 0;
     int InputY = 0;
@@ -411,15 +356,51 @@ protected:
         if(InputX != 0)
         {
             PositionX += InputX * Speed;
-            Printf("Player Location: X: %d | Y: %d", PositionX, PositionY);  
         }
 
         if(InputY != 0)
         {
             PositionY += InputY * Speed;
-            Printf("Player Location: X: %d | Y: %d", PositionX, PositionY);  
         }
     }
+
+    Color16 Color = GREEN;
+
+    virtual void Render() override
+    {
+        DrawRectangle(PositionX, PositionY * -1, 16, 16, Color);
+    }
+};
+
+// Wall is also used as floor
+class Wall : public Entity
+{
+
+public:
+    Wall(int PositionX, int PositionY, int SizeX, int SizeY, Color16 Color):
+       PositionX(PositionX), PositionY(PositionY), SizeX(SizeX), SizeY(SizeY), Color(Color)
+    {}
+
+protected:
+
+    virtual void Render() override
+    {
+        DrawRectangle(PositionX + 1, PositionY + 1, SizeX - 1, SizeY - 1, Color); 
+
+        // Black outline B)
+        DrawRectangle(PositionX, PositionY,         SizeX, 1, BLACK);
+        DrawRectangle(PositionX, PositionY + SizeY, SizeX + 1, 1, BLACK);
+        DrawRectangle(PositionX, PositionY, 1,         SizeY, BLACK);
+        DrawRectangle(PositionX + SizeX, PositionY, 1, SizeY, BLACK);
+    }
+
+private:
+
+    int PositionX;
+    int PositionY;
+    int SizeX;
+    int SizeY;
+    Color16 Color;
 };
 
  /*
@@ -448,6 +429,7 @@ public:
         if(InitializeFrameBuffer())
         {
             Print("Successfully initialized frame buffer!");
+            InitializeRenderVariables();
         }
         else
         {
@@ -458,22 +440,22 @@ public:
     void GameLoop()
     {
         Initialize(); 
-        SpawnEntity();
+        SpawnPlayer();
+        SpawnLevel1();
         while(bIsActive)
         {                   
             Update();
             CheckInput();
-            Render();
-
-            if(chrono::steady_clock::now() - LastFixedFrame >= (1000ms / FixedFPS))
+            auto Now = chrono::steady_clock::now(); 
+            if(Now - LastFixedFrame >= (1000ms / FixedFPS))
             {       
                 FixedUpdate();
+                Render();
             }
-            
             CheckTrackedEntities();
 
             // Without this, we will run at >1,000,000 FPS
-            this_thread::sleep_until( chrono::steady_clock::now() + FrameTime());
+            this_thread::sleep_until(Now + FrameTime());
         }
     }
 
@@ -481,7 +463,7 @@ public:
     {
         bIsActive = false;
         Print("Goodbye world!");
-        Printf("Update Frames: %lu\nFixed Frames: %lu\n\n", UpdateFrames, FixedFrames);
+        Printf("Update Frames: {}\nFixed Frames: {}\n\n", UpdateFrames, FixedFrames);
     }
     
     chrono::steady_clock::time_point StartTime;
@@ -517,13 +499,73 @@ public:
             CurEntity->FixedUpdate();
         }
     }
+   
+
+    void InitializeRenderVariables()
+    {
+        fb_fix_screeninfo FixedInfo;
+        fb_var_screeninfo VariableInfo;
+        ioctl(FrameBufferDevice, FBIOGET_FSCREENINFO, &FixedInfo);
+        ioctl(FrameBufferDevice, FBIOGET_VSCREENINFO, &VariableInfo);
+
+        Height = VariableInfo.yres;
+        LineLength = FixedInfo.line_length;
+        BitsPerPixel = VariableInfo.bits_per_pixel; // 16 or 32
+        PageSize = static_cast<size_t>(Height) * LineLength;
+
+    } 
     
+    int Height;
+    int LineLength;
+    int BitsPerPixel;
+    size_t PageSize;
+
     void Render()
     { 
+        uint8_t* BackBuffer = new uint8_t[PageSize]();
+
+        //Draw Background
+        Clear(CLEAR_COLOR);
+        
         for(auto& CurEntity : Entities)
         {
             CurEntity->Render();
         }
+        
+        for(int GY = 0; GY < GameHeight; GY++)
+        {
+            for(int SY = 0; SY < PixelScale; SY++)
+            {
+                int DestRow = GY * PixelScale + SY;
+                if(DestRow >= Height) { break; }
+                uint8_t* Row = BackBuffer + DestRow * LineLength;
+
+                for(int GX = 0; GX < GameWidth; GX++)
+                {
+                    uint16_t Pixel = GameBuffer[GY * GameWidth + GX];
+                    
+                    for(int SX = 0; SX < PixelScale; SX++)
+                    {
+                        int DestX = GX * PixelScale + SX;
+                        
+                        // TODO: Hide this behind an ifdef
+                        //if(BitsPerPixel == 16)
+                        //{
+                           reinterpret_cast<uint16_t*>(Row)[DestX] = Pixel;
+                        //}
+                        //else
+                        //{
+                        //  reinterpret_cast<uint16_t*>(Row)[DestX] = RGB565ToRGBA32(Pixel);
+                        //}
+                    }
+                }
+            }
+        }
+        
+
+        pwrite(FrameBufferDevice, BackBuffer, PageSize, 0);
+        
+        delete[] BackBuffer;
     }
 
     void CheckTrackedEntities()
@@ -536,7 +578,7 @@ public:
         input_event Ev;
         if(read(FoundKeyboard, &Ev, sizeof(Ev)) == sizeof(Ev))
         {
-            if(InputMap.contains(Ev.code))
+            if(Ev.value != 2 && InputMap.contains(Ev.code))
             {   
                 switch(InputMap[Ev.code])
                 {
@@ -602,20 +644,42 @@ public:
                         Quit();
                         break;
                     default:
-                        Printf("Unknown key pressed, keycode %d", Ev.code);
+                        Printf("Unknown key pressed, keycode {}", Ev.code);
                         break;
                 }
             }
         }
     }
     
+    void SpawnLevel1()
+    {
+        SpawnWall();
+    }
 
-    void SpawnEntity()
+    // TODO: make this more generic
+    void SpawnWall()
+    {
+        // Bottom 2
+        Entities.push_back(make_unique<Wall>(0,  232, 128, 8, ORANGE));
+        Entities.push_back(make_unique<Wall>(GameWidth - 128, 232, 128, 8, ORANGE));
+        
+        // First middle
+        Entities.push_back(make_unique<Wall>(GameWidth - 288, 168, 256, 8, ORANGE));
+        
+        // Upper 2
+        Entities.push_back(make_unique<Wall>(0,  104, 128, 8, ORANGE));
+        Entities.push_back(make_unique<Wall>(GameWidth - 128, 104, 128, 8, ORANGE));
+        
+        // Top middle
+        Entities.push_back(make_unique<Wall>(GameWidth - 288, 40, 256, 8,  ORANGE));
+    }    
+
+    void SpawnPlayer()
     {
         unique_ptr<Player> NewPlayer = make_unique<Player>();
         GamePlayer = NewPlayer.get();
         Entities.push_back(std::move(NewPlayer));
-    }
+    } 
 
  private:
     Input GameInput;
@@ -623,22 +687,22 @@ public:
 
     int FoundKeyboard = -1;
     bool bIsActive = true;
-    uint8_t FixedFPS = 30;
-    uint16_t FPS = 300;
+    double FixedFPS = 30.0;
+    double FPS = 60.0;
     
     // DEBUG
     uint64_t UpdateFrames = 0;
     uint64_t FixedFrames = 0;
 
-    chrono::milliseconds FixedFrameTime()
+    chrono::duration<float, milli> FixedFrameTime()
     {
-        return chrono::milliseconds(1000 / FixedFPS);
+        return chrono::duration<float, milli>(1000.0 / FixedFPS);
     }
 
 
-    chrono::milliseconds FrameTime()
+    chrono::duration<float, milli> FrameTime()
     {
-        return chrono::milliseconds(1000 / FPS);
+        return chrono::duration<float, milli>(1000.0 / FPS);
     }
 
     void ShootDown()
@@ -668,7 +732,7 @@ public:
         InputY += Y;
         
         GamePlayer->Move(InputX, InputY);
-        Printf("Movement X: %d Y: %d", InputX, InputY);
+        Printf("Movement X: {} Y: {}", InputX, InputY);
     }
 
     void ArrowKeyReleased(int X, int Y)
@@ -677,7 +741,7 @@ public:
         InputY -= Y;
 
         GamePlayer->Move(InputX, InputY);
-        Printf("Movement X: %d Y: %d", InputX, InputY);
+        Printf("Movement X: {} Y: {}", InputX, InputY);
     }
 
     void Quit()
