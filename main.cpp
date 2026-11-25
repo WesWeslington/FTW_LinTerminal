@@ -242,13 +242,12 @@ private:
 
 enum class InputKey
 {
-    Up, 
+    Up,    // Jump
     Down, 
     Right, 
     Left,   
-    Shoot, 
-    Jump,  
-    Quit   
+    Shoot,   
+    Quit   // Q
 };
 
 map<int, InputKey> InputMap = 
@@ -257,8 +256,7 @@ map<int, InputKey> InputMap =
     { KEY_DOWN,   InputKey::Down  },
     { KEY_RIGHT,  InputKey::Right },
     { KEY_LEFT,   InputKey::Left  },
-    { KEY_G,      InputKey::Shoot },
-    { KEY_SPACE,  InputKey::Jump  },
+    { KEY_SPACE,  InputKey::Shoot  },
     { KEY_Q,      InputKey::Quit  }
 };
 
@@ -287,6 +285,11 @@ protected:
     virtual void FixedUpdate(){}
     virtual void Render(){}
     bool bIsAlive = true;
+
+    const chrono::steady_clock::time_point Now()
+    {
+        return chrono::steady_clock::now();
+    }
 };
 
  /*
@@ -294,6 +297,134 @@ protected:
 */
 vector<unique_ptr<Entity>> Entities;
 int Gravity = 10;
+
+ /*
+ *   Projectiles
+*/
+class Projectile : public Entity
+{
+
+public:
+    Projectile(int SpawnPosX, int SpawnPosY, bool bIsRight)
+        :PositionX(SpawnPosX), PositionY(SpawnPosY)
+    {
+        KillTime = Now() + LifeTime;
+        VelocityX *= bIsRight ? 1 : -1;
+    }
+protected:
+    chrono::steady_clock::time_point KillTime;
+    chrono::milliseconds LifeTime = 1000ms;
+
+    int PositionX;
+    int PositionY;
+
+    int SizeX;
+    int SizeY;
+
+    int VelocityX = 1; // DEBUG
+    int VelocityY;
+
+    int Speed = 1;
+    
+    virtual void FixedUpdate() override
+    {
+        UpdatePosition();
+        if(Now() > KillTime)
+        {
+            Kill();
+        }
+    }
+
+    void UpdatePosition()
+    {
+        PositionX += VelocityX * Speed;
+        PositionY += VelocityY * Speed;
+    }
+};
+
+// Pistol - Goes Pew Pew
+// TODO: Make it so 1 bullet does not pierce
+class PistolProjectile : public Projectile
+{
+
+public:
+    PistolProjectile(int SpawnPosX, int SpawnPosY, bool bIsRight)
+        :Projectile(SpawnPosX, SpawnPosY, bIsRight)
+    {
+        Speed = 4;
+        LifeTime = 2500ms;
+        PositionX += bIsRight ? 16 : -8;
+        PositionY += 4;
+        KillTime = Now() + LifeTime;
+    }
+
+protected:
+
+    int SizeX = 4; 
+    int SizeY = 4;
+
+    virtual void Render()
+    {
+        DrawRectangle(PositionX, PositionY, SizeX, SizeY, BLACK); 
+    }
+};
+
+// Fly swatter - swooosh!
+
+class FlySwatterProjectile : public Projectile
+{
+
+public:
+    FlySwatterProjectile(int SpawnPosX, int SpawnPosY, bool bIsRight)
+        :Projectile(SpawnPosX, SpawnPosY, bIsRight)
+    {
+        PositionY -= 10;
+
+        PositionX += bIsRight ? 17 : -9;
+        
+        Speed = 10;
+        VelocityX *= 1;
+        VelocityY = 1;
+        LifeTime = 50ms;
+        KillTime = Now() + LifeTime;
+    }
+
+protected:
+
+    int SizeX = 8; 
+    int SizeY = 8;
+
+    virtual void Render()
+    {
+        DrawRectangle(PositionX, PositionY, SizeX, SizeY, BLACK); 
+    }
+};
+
+// Hammer - goes whooosh!
+class HammerProjectile : public Projectile
+{
+
+public:
+    HammerProjectile(int SpawnPosX, int SpawnPosY, bool bIsRight)
+        :Projectile(SpawnPosX, SpawnPosY, bIsRight)
+    {
+        Speed = 2;
+        LifeTime = 2000ms;
+        PositionX += bIsRight ? 16 : -8;
+        KillTime = Now() + LifeTime;
+    }
+
+protected:
+
+    int SizeX = 4; 
+    int SizeY = 12;
+
+    virtual void Render()
+    {
+        DrawRectangle(PositionX, PositionY, SizeX, SizeY, WHITE); 
+    }
+};
+
 
 /*
  *  Player
@@ -315,6 +446,7 @@ public:
     
     void Shoot()
     {
+        SpawnProjectile();
     }
 
     void CancelShoot()
@@ -326,12 +458,17 @@ public:
     {
     }
 
-    //TODO: Maybe a CancelJump() to have better control of jump height?
+    void CancelJump()
+    {
+
+    }
 
     int PositionX = 0;
     int PositionY = 0;
     int Speed = 4;
 
+    // By default, player shoots right
+    int LastXInput = 1;
     int InputX = 0;
     int InputY = 0;
 
@@ -342,6 +479,7 @@ public:
         
         InputX = X;
         InputY = Y;
+        LastXInput = X == 0 ? LastXInput : InputX;
     }
 
 protected:
@@ -360,7 +498,7 @@ protected:
 
         if(InputY != 0)
         {
-            PositionY += InputY * Speed;
+            PositionY += InputY * -Speed;
         }
     }
 
@@ -368,7 +506,19 @@ protected:
 
     virtual void Render() override
     {
-        DrawRectangle(PositionX, PositionY * -1, 16, 16, Color);
+        DrawRectangle(PositionX, PositionY, 16, 16, Color);
+    }
+
+private:
+    void SpawnProjectile()
+    {
+        bool bIsRight = LastXInput == 1;
+        
+        // For swatter
+        //Entities.push_back(make_unique<PistolProjectile>(PositionX, PositionY, bIsRight));
+        //Entities.push_back(make_unique<FlySwatterProjectile>(PositionX, PositionY,  bIsRight));
+        Entities.push_back(make_unique<HammerProjectile>(PositionX, PositionY, bIsRight));
+         
     }
 };
 
@@ -402,7 +552,6 @@ private:
     int SizeY;
     Color16 Color;
 };
-
  /*
  *  Game
 */
@@ -582,12 +731,6 @@ public:
             {   
                 switch(InputMap[Ev.code])
                 {
-                    case(InputKey::Jump):
-                        if(Ev.value == 1)
-                        {
-                            Jump();
-                        }
-                        break;
                     case(InputKey::Shoot):
                         if(Ev.value == 1)
                         {
@@ -602,11 +745,11 @@ public:
                        
                         if(Ev.value == 1)
                         {
-                            ArrowKeyDown(0, 1);
+                            Jump();
                         }
                         else if(Ev.value == 0)
                         {
-                            ArrowKeyReleased(0, 1);
+                            CancelJump();
                         }
                         break;
                     case(InputKey::Down):
@@ -693,7 +836,7 @@ public:
     // DEBUG
     uint64_t UpdateFrames = 0;
     uint64_t FixedFrames = 0;
-
+    
     chrono::duration<float, milli> FixedFrameTime()
     {
         return chrono::duration<float, milli>(1000.0 / FixedFPS);
@@ -721,6 +864,12 @@ public:
     {
         GamePlayer->Jump();
         Print("Jump Input");
+    }
+
+    void CancelJump()
+    {
+        GamePlayer->CancelJump();
+        Print("Cancel Jump");
     }
     
     int InputX = 0;
