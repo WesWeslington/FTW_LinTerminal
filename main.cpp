@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <format>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -26,18 +27,26 @@ using namespace std;
  *  Helpers
 */
 
-#define Printf(Message, ...) \
-    printf(Message "\n", ##__VA_ARGS__);
+string TimestampedString(const string& Message)
+{
+    return std::format("[{:%Y-%m-%d %H:%M:%S UTC}] {}", 
+            chrono::floor<chrono::seconds>(chrono::system_clock::now()), Message);
+}
 
+#define Printf(Message, ...) \
+    Print(std::format(Message, ##__VA_ARGS__));
+
+#define Errorf(Message, ...) \
+    Error(std::format(Message, ##__VA_ARGS__));
 
 void Print(string Message)
 {
-    cout << Message << endl;
+    cout << TimestampedString(Message) << endl;
 }
 
 void Error(const string &Message)
 {
-    perror(Message.c_str());
+    perror(TimestampedString(Message).c_str());
     cout << endl;
 }
 
