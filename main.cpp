@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <chrono>
 #include <cassert>
 #include <csignal>
@@ -269,7 +270,13 @@ class Entity
 public:
     friend Game;
     
-    Entity(){}
+    Entity(int SpawnPosX, int SpawnPosY):
+        PositionX(SpawnPosX), PositionY(SpawnPosY){}
+
+    Entity(int SpawnPosX, int SpawnPosY, int _SizeX, int _SizeY):
+        PositionX(SpawnPosX), PositionY(SpawnPosY), SizeX(_SizeX), SizeY(_SizeY){}
+
+
     virtual ~Entity(){}
     
     const bool& IsAlive() { return bIsAlive;}
@@ -278,14 +285,44 @@ public:
     {
         bIsAlive = false;
     }
-
+    const int& GetPositionY(){ return PositionY; }
 protected:
-
+    
+    int SizeY;
+    int SizeX;
+    int PositionX;
+    int PositionY;
+    int VelocityX = 0;
+    int VelocityY = 0;
+    int Weight = 1;
+    
     virtual void Update(){}
     virtual void FixedUpdate(){}
-    virtual void Render(){}
-    bool bIsAlive = true;
+    
+    virtual void StartPhysics(Entity** PhysicsBuffer)
+    {
+        if(IsInBounds())
+        for(int Y = PositionY; Y < PositionY + SizeY; Y++)
+        {
+            for(int X = PositionX; X < PositionX + SizeX; X++)
+            {
+                PhysicsBuffer[GameWidth * Y + X] = this;
+            }
+        }
+    }
 
+    bool IsInBounds()
+    {
+        return PositionX >= 0 && PositionX + SizeX <= GameWidth &&
+           PositionY >= 0 && PositionY + SizeY <= GameHeight; 
+    }
+
+    virtual void CheckPhysics(Entity** PhysicsBuffer){}
+    
+    virtual void Render(){}
+
+    bool bIsAlive = true;
+    bool bIsGrounded = false;
     const chrono::steady_clock::time_point Now()
     {
         return chrono::steady_clock::now();
@@ -306,28 +343,19 @@ class Projectile : public Entity
 
 public:
     Projectile(int SpawnPosX, int SpawnPosY, bool bIsRight)
-        :PositionX(SpawnPosX), PositionY(SpawnPosY)
+        :Entity(SpawnPosX, SpawnPosY)
     {
         KillTime = Now() + LifeTime;
-        VelocityX *= bIsRight ? 1 : -1;
+        VelocityX = Speed * (bIsRight ? 1 : -1);
     }
 protected:
     chrono::steady_clock::time_point KillTime;
     chrono::milliseconds LifeTime = 1000ms;
 
-    int PositionX;
-    int PositionY;
-
-    int SizeX;
-    int SizeY;
-
-    int VelocityX = 1; // DEBUG
-    int VelocityY;
-
     int Speed = 1;
     
     virtual void FixedUpdate() override
-    {
+    {        
         UpdatePosition();
         if(Now() > KillTime)
         {
@@ -426,109 +454,15 @@ protected:
 };
 
 
-/*
- *  Player
+ /*
+ *   Wall
 */
-
-class Player : public Entity
-{
-
-public:
-    Player()
-    {
-        Print("Player has spawned!");
-    }
-
-    ~Player()
-    {
-        Print("Player has been deleted!");
-    }
-    
-    void Shoot()
-    {
-        SpawnProjectile();
-    }
-
-    void CancelShoot()
-    {
-
-    }
-    
-    void Jump()
-    {
-    }
-
-    void CancelJump()
-    {
-
-    }
-
-    int PositionX = 0;
-    int PositionY = 0;
-    int Speed = 4;
-
-    // By default, player shoots right
-    int LastXInput = 1;
-    int InputX = 0;
-    int InputY = 0;
-
-    void Move(const int& X, const int& Y)
-    {
-        PositionX += X;
-        PositionY += Y;
-        
-        InputX = X;
-        InputY = Y;
-        LastXInput = X == 0 ? LastXInput : InputX;
-    }
-
-protected:
-
-    virtual void Update() override
-    {
-
-    }
-
-    virtual void FixedUpdate() override
-    {
-        if(InputX != 0)
-        {
-            PositionX += InputX * Speed;
-        }
-
-        if(InputY != 0)
-        {
-            PositionY += InputY * -Speed;
-        }
-    }
-
-    Color16 Color = GREEN;
-
-    virtual void Render() override
-    {
-        DrawRectangle(PositionX, PositionY, 16, 16, Color);
-    }
-
-private:
-    void SpawnProjectile()
-    {
-        bool bIsRight = LastXInput == 1;
-        
-        // For swatter
-        //Entities.push_back(make_unique<PistolProjectile>(PositionX, PositionY, bIsRight));
-        //Entities.push_back(make_unique<FlySwatterProjectile>(PositionX, PositionY,  bIsRight));
-        Entities.push_back(make_unique<HammerProjectile>(PositionX, PositionY, bIsRight));
-         
-    }
-};
-
-// Wall is also used as floor
 class Wall : public Entity
 {
 
 public:
     Wall(int PositionX, int PositionY, int SizeX, int SizeY, Color16 Color):
-       PositionX(PositionX), PositionY(PositionY), SizeX(SizeX), SizeY(SizeY), Color(Color)
+       Entity(PositionX, PositionY, SizeX, SizeY), Color(Color)
     {}
 
 protected:
@@ -546,12 +480,207 @@ protected:
 
 private:
 
-    int PositionX;
-    int PositionY;
-    int SizeX;
-    int SizeY;
     Color16 Color;
 };
+
+/*
+ *  Player
+*/
+
+class Player : public Entity
+{
+
+public:
+    Player(int SpawnPosX, int SpawnPosY)
+    :Entity(SpawnPosX, SpawnPosY)
+    {
+        SizeX = 16;
+        SizeY = 16;
+        Print("Player has spawned!");
+    }
+
+    ~Player()
+    {
+        Print("Player has been deleted!");
+    }
+    
+    void Shoot()
+    {
+        SpawnProjectile();
+    }
+
+    // TODO: Make it so shoot repeats until it's let go at the speed of the projectile
+    // TODO: Give projectiles a shooting cool down
+    void CancelShoot()
+    {
+
+    }
+    
+    void Jump()
+    {   
+        if(bIsGrounded)
+        {
+            bIsGrounded = false;
+            PositionY -=2;
+            VelocityY = -16;
+        }
+    }
+
+    void CancelJump()
+    {
+
+    }
+
+    int Speed = 4;
+
+    // By default, player shoots right
+    int LastXInput = 1;
+    int InputX = 0;
+    int InputY = 0;
+
+    void Move(const int& X, const int& Y)
+    {   
+        InputX = X;
+        VelocityX = X * Speed;
+
+        InputY = Y;
+
+        LastXInput = X == 0 ? LastXInput : InputX;
+    }
+
+protected:
+
+    virtual void Update() override
+    {
+
+    }
+
+    virtual void FixedUpdate() override
+    {
+        
+
+        if(VelocityY < 0)
+        { 
+            VelocityY += 1;
+        }
+
+
+        if(!bIsGrounded)
+        {
+            if(VelocityY < 0)
+            {
+                VelocityY += 1;
+            }
+            else
+            {
+                VelocityY = 4; // TODO: remove Default hardcoded fall speed
+            }
+        }
+        else
+        {
+            VelocityY = 0;
+        }
+
+        if(InputX != 0)
+        {
+            VelocityX = InputX * Speed;
+        }
+
+        if(InputY != 0)
+        {
+            if(InputY == -1 && !bIsGrounded)
+            {
+                VelocityY = 10;
+            }
+        }
+
+        if(bIsGrounded)
+        {
+            VelocityY = 0;
+        }
+
+        PositionX += VelocityX;    
+        PositionY += VelocityY;
+    }
+
+    Color16 Color = GREEN;
+
+    virtual void Render() override
+    {
+        DrawRectangle(PositionX, PositionY, SizeX, SizeY, Color);
+        int LowerBottomY = PositionY + SizeY + 1;
+        
+        // Debug physics
+        for(int BottomY = PositionY + SizeY - 2; BottomY < LowerBottomY; BottomY++)
+        for(int BottomX = PositionX; BottomX < PositionX + SizeX; BottomX++)
+        {
+            DrawPixel(BottomX, BottomY, RED);
+        }
+        for(int TopY = PositionY - 1; TopY < PositionY + 4; TopY++)
+        for(int TopX = PositionX; TopX < PositionX + SizeX; TopX++)
+            DrawPixel(TopX, TopY, RED);
+    }
+    
+    bool bIsTouchingRoof;
+
+    virtual void CheckPhysics(Entity** PhysicsBuffer) override
+    {
+        int LowerBottomY = PositionY + SizeY + 1;
+
+        bool CollisionDetected=false;
+        
+        // Touching floor
+        if(IsInBounds()) //TODO: Add clamping instead of this
+        for(int BottomY = PositionY + SizeY - 2; BottomY < LowerBottomY; BottomY++)
+        for(int BottomX = PositionX; BottomX < PositionX + SizeX; BottomX++)
+        {
+            int Index = BottomY * GameWidth + BottomX;
+            if(PhysicsBuffer[Index] != nullptr)
+            {
+                if(Wall* CollWall = dynamic_cast<Wall*>(PhysicsBuffer[Index]))
+                {
+                    CollisionDetected = true;
+                    PositionY = CollWall->GetPositionY() - SizeY;
+                }   
+            }
+        }
+
+        bIsGrounded = CollisionDetected;
+
+        // Touching roof
+        CollisionDetected = false;
+        
+        if(IsInBounds())
+        for(int TopY = PositionY - 1; TopY < PositionY + 4; TopY++)
+        for(int TopX = PositionX; TopX < PositionX + SizeX; TopX++)
+        {
+            int Index = TopY * GameWidth + TopX;
+            if(PhysicsBuffer[Index] != nullptr)
+            {
+                if(Wall* CollWall = dynamic_cast<Wall*>(PhysicsBuffer[Index]))
+                {
+                    CollisionDetected = true;
+                    PositionY = CollWall->GetPositionY() + 8;
+                    VelocityY = 0;
+                }   
+            }
+        }
+
+        bIsTouchingRoof = CollisionDetected;
+    }
+private:
+    void SpawnProjectile()
+    {
+        bool bIsRight = LastXInput == 1;
+        
+        // For swatter
+        //Entities.push_back(make_unique<PistolProjectile>(PositionX, PositionY, bIsRight));
+        //Entities.push_back(make_unique<FlySwatterProjectile>(PositionX, PositionY,  bIsRight));
+        Entities.push_back(make_unique<HammerProjectile>(PositionX, PositionY, bIsRight));
+         
+    }
+};
+ 
  /*
  *  Game
 */
@@ -599,6 +728,7 @@ public:
             if(Now - LastFixedFrame >= (1000ms / FixedFPS))
             {       
                 FixedUpdate();
+                Physics();
                 Render();
             }
             CheckTrackedEntities();
@@ -627,7 +757,7 @@ public:
     
     void UpdateEntities()
     {
-        for(auto& CurEntity : Entities)
+        for(const auto& CurEntity : Entities)
         {
             CurEntity->Update();
         }
@@ -643,7 +773,7 @@ public:
     
     void FixedUpdateEntities()
     {
-        for(auto& CurEntity : Entities)
+        for(const auto& CurEntity : Entities)
         {
             CurEntity->FixedUpdate();
         }
@@ -676,7 +806,7 @@ public:
         //Draw Background
         Clear(CLEAR_COLOR);
         
-        for(auto& CurEntity : Entities)
+        for(const auto& CurEntity : Entities)
         {
             CurEntity->Render();
         }
@@ -715,6 +845,23 @@ public:
         pwrite(FrameBufferDevice, BackBuffer, PageSize, 0);
         
         delete[] BackBuffer;
+    }
+
+    void Physics()
+    {
+        Entity** PhysicsBuffer = new Entity*[GameHeight * GameWidth](); 
+        
+        for(const auto& CurEntity : Entities)
+        {
+            CurEntity->StartPhysics(PhysicsBuffer);
+        }
+
+        for(const auto& CurEntity : Entities)
+        {
+            CurEntity->CheckPhysics(PhysicsBuffer);
+        }
+
+        delete[] PhysicsBuffer;
     }
 
     void CheckTrackedEntities()
@@ -819,7 +966,7 @@ public:
 
     void SpawnPlayer()
     {
-        unique_ptr<Player> NewPlayer = make_unique<Player>();
+        unique_ptr<Player> NewPlayer = make_unique<Player>(8, 8);
         GamePlayer = NewPlayer.get();
         Entities.push_back(std::move(NewPlayer));
     } 
